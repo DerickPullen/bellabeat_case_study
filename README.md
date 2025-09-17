@@ -1,7 +1,7 @@
 # bellabeat_case_study
 
-Bellabeat Case Study
-Overview
+Bellabeat Case Study Overview
+
 This case study analyzes Fitbit fitness tracker data (CC0: Public Domain via Kaggle) to explore consumer health habits.
 The goal was to generate insights that Bellabeat can apply to its product strategy.
 
