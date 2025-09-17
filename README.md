@@ -6,9 +6,9 @@ This case study analyzes Fitbit fitness tracker data (CC0: Public Domain via Kag
 The goal was to generate insights that Bellabeat can apply to its product strategy.
 
 Tools
-R (tidyverse, ggplot2, janitor, dplyr)
-R Markdown (for analysis + report)
-GitHub (for portfolio presentation)
+- R (tidyverse, ggplot2, janitor, dplyr)
+- R Markdown (for analysis + report)
+- GitHub (for portfolio presentation)
 
 Steps Followed
 
