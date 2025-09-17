@@ -1,0 +1,575 @@
+---
+title: "Bellabeat Case Study"
+author: "Derick A. Pullen"
+date: "2025-09-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Ask
+
+**Business Task**  
+Analyze smart device usage data to gain insight into how consumers use non-Bellabeat smart devices.  
+Use these insights to make high-level recommendations for how Bellabeat can apply them to one of its products and improve marketing strategy.
+
+**Key Stakeholders**  
+- **Urška Sršen** – Bellabeat’s cofounder and Chief Creative Officer  
+- **Sando Mur** – Bellabeat’s cofounder and key member of the executive team  
+- **Bellabeat Marketing Analytics Team** – responsible for analyzing data and guiding marketing strategy  
+- **Bellabeat Customers** – the end users who benefit from improved product features and health insights  
+
+## Prepare
+
+**Data Source**  
+The dataset used for this analysis is the **FitBit Fitness Tracker Data** (CC0: Public Domain, available on Kaggle).  
+It contains data from 30 eligible Fitbit users who consented to share their personal tracker information, including daily activity, sleep, weight.  
+
+**Data Files Used**  
+- `daily_activity_raw.csv` – records of steps, distance, active minutes, and calories  
+- `sleep_day_raw.csv` – records of minutes asleep and time in bed  
+- `weight_log_raw.csv` – records of weight, BMI, and log type (manual vs. smart scale)  
+
+**Organization**  
+- Each dataset is stored in **CSV format**.  
+- Data is in a **wide format** (one row per user per date).  
+- Common keys: `Id` (user) and `Date` (day of activity/sleep/weight).  
+
+**Credibility and Limitations**  
+- Small sample size (**30 users**) limits generalizability.  
+- Self-reported measures (like weight logs) may introduce **bias**.  
+- Not all users consistently logged sleep or weight data → missing values.  
+- The dataset passes the **ROCCC test** (Reliable, Original, Comprehensive, Current, Cited), but with noted limitations.  
+
+**Licensing and Accessibility**  
+- The dataset is CC0: Public Domain, meaning it is free to use without restrictions.  
+- No privacy concerns since user identities are anonymized.  
+
+**Data Integrity**  
+- Verified that files opened correctly and contained expected columns.  
+- Initial inspection showed duplicates in `sleep_day_raw.csv` that required cleaning.  
+
+## Process
+
+### Load Packages
+```{r}
+library(tidyverse)   # readr, dplyr, ggplot2, etc.
+library(janitor)     # clean_names()
+```
+
+### Read RAW Files
+```{r}
+daily_raw  <- readr::read_csv("data/raw/case_study_2_bellabeat_daily_activity_R.csv")
+sleep_raw  <- readr::read_csv("data/raw/case_study_2_bellabeat_sleep_data_R.csv")
+weight_raw <- readr::read_csv("data/raw/case_study_2_bellabeat_weight_data_R.csv")
+```
+
+### Clean column names, remove duplicates, fix dates
+```{r}
+# Daily
+daily <- daily_raw %>%
+  clean_names() %>%
+  distinct() %>%
+  mutate(activity_date = as.Date(activity_date, tryFormats = c("%m/%d/%Y","%Y-%m-%d")))
+
+# Sleep
+sleep <- sleep_raw %>%
+  clean_names() %>%
+  distinct() %>%
+  mutate(sleep_day = as.Date(sleep_day, tryFormats = c("%m/%d/%Y","%Y-%m-%d")))
+
+# Weight
+weight <- weight_raw %>%
+  clean_names() %>%
+  distinct() %>%
+  mutate(
+    date = as.Date(date, tryFormats = c("%m/%d/%Y","%Y-%m-%d"))
+  )
+```
+
+```{r build-daily-sleep, message=FALSE}
+# assumes daily and sleep were already read/cleaned in earlier chunks
+daily_sleep <- daily %>%
+  inner_join(sleep, by = c("id" = "id",
+                           "activity_date" = "sleep_day"))
+
+# optional feature engineering
+daily_sleep <- daily_sleep %>%
+  mutate(
+    sleep_hours = total_minutes_asleep / 60,
+    in_bed_hours = total_time_in_bed / 60,
+    sleep_efficiency = if_else(in_bed_hours > 0, sleep_hours / in_bed_hours, NA_real_)
+  )
+
+```
+
+
+## Analyze
+
+The cleaned datasets were organized by user ID and date. Daily activity and sleep logs were merged to allow cross-analysis (steps vs. sleep). Weight logs remain separate due to limited participation
+
+### Daily Activity Levels
+```{r}
+# % of days with 10k+ steps
+pct_days_10k <- mean(daily$total_steps >= 10000, na.rm = TRUE) * 100
+round(pct_days_10k, 1)
+```
+
+**Insight:**  
+Only about `r round(pct_days_10k,1)`% of all logged days reached the 10,000-step benchmark.  
+This indicates most users are not consistently meeting the recommended daily activity levels.
+
+All datasets were properly formatted for analysis. Dates were stored in Date format, numeric fields in numeric format, and duplicates removed.
+```{r}
+glimpse(daily)
+glimpse(sleep)
+```
+
+```{r}
+user_avg <- daily %>%
+  group_by(id) %>%
+  summarise(avg_steps = mean(total_steps, na.rm = TRUE))
+
+summary(user_avg$avg_steps)
+mean(user_avg$avg_steps >= 10000) * 100
+```
+
+Surprisingly, only a small percentage of users averaged 10,000 steps per day across the dataset, suggesting most are falling short of CDC’s activity recommendation.
+
+```{r}
+ggplot(daily, aes(total_steps, calories)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title="Steps vs. Calories Burned")
+```
+
+```{r}
+ggplot(daily_sleep, aes(total_steps, total_minutes_asleep)) +
+  geom_point(alpha=0.5) +
+  geom_smooth(method="lm", se=FALSE) +
+  labs(title="Steps vs. Sleep Minutes")
+```
+
+## Sleep Analysis
+
+### Build / Load merged daily + sleep (safe guard)
+```{r build-or-load-daily-sleep, message=FALSE}
+library(readr); library(dplyr)
+
+# If the object isn't in memory, try to read the saved merged file
+if (!exists("daily_sleep")) {
+  if (file.exists("data/cleaned/daily_sleep_merged.csv")) {
+    daily_sleep <- readr::read_csv("data/cleaned/daily_sleep_merged.csv")
+  } else {
+    # If you didn't save it earlier, build it now from daily + sleep
+    daily_sleep <- daily %>%
+      inner_join(sleep, by = c("id" = "id", "activity_date" = "sleep_day"))
+  }
+}
+
+# Ensure helper columns exist
+daily_sleep <- daily_sleep %>%
+  mutate(
+    sleep_hours   = total_minutes_asleep / 60,
+    in_bed_hours  = total_time_in_bed   / 60,
+    sleep_efficiency = dplyr::if_else(in_bed_hours > 0, sleep_hours / in_bed_hours, NA_real_)
+  )
+```
+
+### Key sleep metrics (daily level)
+```{r sleep-metrics-daily}
+# % of days with at least 7 hours slept
+pct_days_7h <- mean(daily_sleep$sleep_hours >= 7, na.rm = TRUE) * 100
+
+# Central tendency (daily)
+sleep_mean  <- mean(daily_sleep$sleep_hours, na.rm = TRUE)
+sleep_median<- median(daily_sleep$sleep_hours, na.rm = TRUE)
+
+# Sleep efficiency (as %)
+eff_mean <- mean(daily_sleep$sleep_efficiency, na.rm = TRUE) * 100
+```
+
+**Insight (daily level):**  
+On a typical logged day, users slept about **`r round(sleep_mean,1)` hours** (median **`r round(sleep_median,1)`**), and only **`r round(pct_days_7h,1)`%** of days met the **7+ hours** guideline.  
+Average **sleep efficiency** (time asleep ÷ time in bed) was **`r round(eff_mean,0)`%**, indicating some in-bed time isn’t translating to sleep.
+
+### User-level sleep (consistency by person)
+```{r sleep-metrics-user}
+sleep_user <- daily_sleep %>%
+  group_by(id) %>%
+  summarise(
+    days_logged = n(),
+    avg_sleep_hours = mean(sleep_hours, na.rm = TRUE),
+    avg_efficiency  = mean(sleep_efficiency, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# % of users who average at least 7 hours/night
+pct_users_avg_7h <- mean(sleep_user$avg_sleep_hours >= 7, na.rm = TRUE) * 100
+```
+
+**Insight (user level):**  
+Only **`r round(pct_users_avg_7h,1)`%** of users **average** at least 7 hours of sleep. This suggests **chronic short sleep** for many users, not just occasional short nights.
+
+### Visuals: distribution & efficiency
+```{r sleep-hist, message=FALSE}
+library(ggplot2)
+
+ggplot(daily_sleep, aes(x = sleep_hours)) +
+  geom_histogram(binwidth = 0.5) +
+  labs(title = "Distribution of Daily Sleep (hours)",
+       x = "Hours slept",
+       y = "Days")
+```
+
+```{r sleep-efficiency-hist, message=FALSE}
+ggplot(daily_sleep, aes(x = sleep_efficiency)) +
+  geom_histogram(binwidth = 0.05) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(title = "Distribution of Sleep Efficiency",
+       x = "Sleep efficiency",
+       y = "Days")
+```
+
+### Relationship: steps vs. sleep
+```{r steps-vs-sleep-corr, message=FALSE}
+ggplot(daily_sleep, aes(x = total_steps, y = sleep_hours)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Daily Steps vs. Sleep Hours",
+       x = "Total steps",
+       y = "Sleep hours")
+```
+
+```{r steps-sleep-corr}
+# Correlation (will be small in many Fitbit samples)
+steps_sleep_cor <- suppressWarnings(cor(daily_sleep$total_steps, daily_sleep$sleep_hours, use = "complete.obs"))
+round(steps_sleep_cor, 2)
+```
+
+**Insight (relationship):**  
+The correlation between steps and sleep is **`r round(steps_sleep_cor,2)`** (where 0 = no linear relationship). This suggests that **higher activity does not strongly predict longer sleep** in this sample—meaning sleep support features should be addressed **independently** of activity coaching.
+
+### Business “So what?”
+- Many users **don’t reach 7 hours** consistently → opportunity for **sleep reminders**, **wind-down routines**, and **bedtime coaching** in the app.  
+- **Efficiency gaps** (awake time in bed) → position **smart bedtime nudges**, **breathing/stress features**, and **sleep hygiene tips**.  
+- Weak steps↔sleep link → market sleep support as a **standalone value** (not just a byproduct of activity).  
+
+## Weight Participation
+
+### How many users logged weight? What’s the average BMI?
+```{r weight-participation-metrics}
+library(dplyr)
+
+# Total unique users in the study (use daily as the universe)
+n_users_total <- dplyr::n_distinct(daily$id)
+
+# Users who logged any weight entry
+n_users_weight <- dplyr::n_distinct(weight$id)
+
+# Participation rate (% of users who ever logged weight)
+weight_participation_pct <- (n_users_weight / n_users_total) * 100
+
+# Overall BMI summary among available weight entries
+avg_bmi   <- mean(weight$bmi, na.rm = TRUE)
+med_bmi   <- median(weight$bmi, na.rm = TRUE)
+n_bmi_obs <- sum(!is.na(weight$bmi))
+
+# (Optional) Manual vs smart scale breakdown if column exists
+has_manual <- "is_manual_report" %in% names(weight)
+if (has_manual) {
+  manual_share <- mean(weight$is_manual_report == TRUE, na.rm = TRUE) * 100
+} else {
+  manual_share <- NA_real_
+}
+
+list(
+  total_users               = n_users_total,
+  users_with_weight_entries = n_users_weight,
+  participation_percent     = round(weight_participation_pct, 1),
+  avg_bmi                   = round(avg_bmi, 1),
+  median_bmi                = round(med_bmi, 1),
+  bmi_observations          = n_bmi_obs,
+  manual_entry_percent      = ifelse(is.na(manual_share), "N/A", paste0(round(manual_share,1), "%"))
+)
+```
+
+**Insight (participation):**  
+Out of **`r n_users_total`** users, **`r n_users_weight`** logged weight at least once (**`r round(weight_participation_pct,1)`%** participation).  
+Weight logging is relatively **sparse**, suggesting users are less consistent with **manual** metrics than automatic ones (steps/sleep).
+
+**Insight (BMI):**  
+Among available entries (**`r n_bmi_obs`** records), average BMI is **`r round(avg_bmi,1)`** (median **`r round(med_bmi,1)`**).  
+This provides context for Bellabeat to **personalize guidance** (e.g., goals, tips) based on users’ body metrics.
+
+### BMI distribution
+```{r bmi-hist, message=FALSE}
+library(ggplot2)
+
+ggplot(weight, aes(x = bmi)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "BMI Distribution (weight logs)",
+       x = "BMI",
+       y = "Count")
+```
+
+### Manual vs. Smart scale logging
+```{r weight-log-type, message=FALSE}
+if ("is_manual_report" %in% names(weight)) {
+  weight_log_type <- weight %>%
+    mutate(type = ifelse(is_manual_report, "Manual", "Smart/Auto")) %>%
+    count(type)
+
+  print(weight_log_type)
+
+  # Simple bar (optional)
+  ggplot(weight_log_type, aes(type, n)) +
+    geom_col() +
+    labs(title = "Weight Log Type",
+         x = "Entry type",
+         y = "Entries")
+} else {
+  "Log type column (is_manual_report) not present in this dataset."
+}
+```
+
+### Business “So what?”
+- **Low participation** in weight logging suggests Bellabeat should **minimize manual entry friction** and emphasize **automatic capture** where possible (e.g., smart scale syncs, reminders).  
+- Use BMI (when available) to **personalize** educational content and **goal setting**, but avoid relying on it for daily engagement—focus primary engagement on **automatic signals** (steps/sleep).
+
+## Summary of Key Metrics
+
+```{r summary-table-build, message=FALSE}
+library(dplyr)
+library(tibble)
+
+# --- Steps ---
+pct_days_10k  <- mean(daily$total_steps >= 10000, na.rm = TRUE) * 100
+user_avg      <- daily %>%
+  group_by(id) %>%
+  summarise(avg_steps = mean(total_steps, na.rm = TRUE), .groups="drop")
+pct_users_10k <- mean(user_avg$avg_steps >= 10000, na.rm = TRUE) * 100
+
+# --- Sleep ---
+sleep_mean     <- mean(daily_sleep$total_minutes_asleep/60, na.rm = TRUE)
+pct_days_7h    <- mean((daily_sleep$total_minutes_asleep/60) >= 7, na.rm = TRUE) * 100
+sleep_eff_mean <- mean(daily_sleep$sleep_efficiency, na.rm = TRUE) * 100
+
+# --- Weight ---
+n_users_total  <- n_distinct(daily$id)
+n_users_weight <- n_distinct(weight$id)
+weight_participation_pct <- (n_users_weight / n_users_total) * 100
+avg_bmi <- mean(weight$bmi, na.rm = TRUE)
+
+# --- Assemble table ---
+summary_tbl <- tibble::tibble(
+  Metric = c(
+    "% of days with ≥10k steps",
+    "% of users averaging ≥10k steps/day",
+    "Average sleep hours (per day)",
+    "% of days with ≥7h sleep",
+    "Avg sleep efficiency (%)",
+    "% of users logging weight",
+    "Average BMI"
+  ),
+  Value = c(
+    paste0(round(pct_days_10k,1), "%"),
+    paste0(round(pct_users_10k,1), "%"),
+    round(sleep_mean,1),
+    paste0(round(pct_days_7h,1), "%"),
+    paste0(round(sleep_eff_mean,0), "%"),
+    paste0(round(weight_participation_pct,1), "%"),
+    round(avg_bmi,1)
+  )
+)
+
+knitr::kable(summary_tbl, caption = "Top Metrics Summary")
+```
+
+The summary shows that most users are not consistently meeting recommended activity (≥10k steps) or sleep (≥7h/night) levels. Weight logging participation is very low. These insights suggest Bellabeat can strengthen its competitive position by emphasizing daily movement nudges, sleep support features, and frictionless weight tracking.
+
+## Supporting Visualizations and Key Findings
+
+## Share
+
+```{r share-setup, message=FALSE}
+library(dplyr); library(ggplot2); library(readr); library(scales)
+library(tibble); library(knitr)
+
+# If needed, load cleaned files
+if (!exists("daily")  && file.exists("data/cleaned/daily_activity_clean.csv"))  daily  <- read_csv("data/cleaned/daily_activity_clean.csv")
+if (!exists("sleep")  && file.exists("data/cleaned/sleep_day_clean.csv"))       sleep  <- read_csv("data/cleaned/sleep_day_clean.csv")
+if (!exists("weight") && file.exists("data/cleaned/weight_log_clean.csv"))      weight <- read_csv("data/cleaned/weight_log_clean.csv")
+
+# Ensure merged daily_sleep exists
+if (!exists("daily_sleep")) {
+  if (file.exists("data/cleaned/daily_sleep_merged.csv")) {
+    daily_sleep <- read_csv("data/cleaned/daily_sleep_merged.csv")
+  } else {
+    daily_sleep <- daily %>% inner_join(sleep, by = c("id"="id","activity_date"="sleep_day"))
+  }
+}
+
+# Feature engineering (sleep)
+if (!"sleep_hours" %in% names(daily_sleep)) {
+  daily_sleep <- daily_sleep %>%
+    mutate(
+      sleep_hours = total_minutes_asleep/60,
+      in_bed_hours = total_time_in_bed/60,
+      sleep_efficiency = if_else(in_bed_hours>0, sleep_hours/in_bed_hours, NA_real_)
+    )
+}
+
+# ---- Metrics used in visuals/text ----
+pct_days_10k <- mean(daily$total_steps >= 10000, na.rm = TRUE) * 100
+
+user_avg <- daily %>%
+  group_by(id) %>%
+  summarise(avg_steps = mean(total_steps, na.rm = TRUE), .groups="drop")
+pct_users_10k <- mean(user_avg$avg_steps >= 10000, na.rm = TRUE) * 100
+
+sleep_mean <- mean(daily_sleep$sleep_hours, na.rm = TRUE)
+pct_days_7h <- mean(daily_sleep$sleep_hours >= 7, na.rm = TRUE) * 100
+eff_mean   <- mean(daily_sleep$sleep_efficiency, na.rm = TRUE) * 100
+
+n_users_total  <- dplyr::n_distinct(daily$id)
+n_users_weight <- if (exists("weight")) dplyr::n_distinct(weight$id) else NA_integer_
+weight_participation_pct <- if (!is.na(n_users_weight)) (n_users_weight/n_users_total)*100 else NA_real_
+avg_bmi <- if (exists("weight")) mean(weight$bmi, na.rm = TRUE) else NA_real_
+
+steps_sleep_cor <- suppressWarnings(cor(daily_sleep$total_steps, daily_sleep$sleep_hours, use="complete.obs"))
+
+# Summary table object (used later)
+summary_tbl <- tibble(
+  Metric = c("% of days with ≥10k steps",
+             "% of users averaging ≥10k steps/day",
+             "Average sleep hours (per day)",
+             "% of days with ≥7h sleep",
+             "Avg sleep efficiency (%)",
+             "% of users logging weight",
+             "Average BMI"),
+  Value = c(paste0(round(pct_days_10k,1), "%"),
+            paste0(round(pct_users_10k,1), "%"),
+            round(sleep_mean,1),
+            paste0(round(pct_days_7h,1), "%"),
+            paste0(round(eff_mean,0), "%"),
+            if (!is.na(weight_participation_pct)) paste0(round(weight_participation_pct,1), "%") else "N/A",
+            if (!is.na(avg_bmi)) round(avg_bmi,1) else NA)
+)
+```
+
+### Daily Steps Distribution
+```{r steps-hist, message=FALSE}
+ggplot(daily, aes(x = total_steps)) +
+  geom_histogram(binwidth = 1000, color = "white") +
+  geom_vline(xintercept = 10000, linetype = "dashed") +
+  scale_x_continuous(labels = label_comma()) +
+  labs(title = "Distribution of Daily Steps",
+       subtitle = paste0("Only ~", round(pct_days_10k,1), "% of days meet 10,000 steps"),
+       x = "Steps per day", y = "Days")
+```
+### Users’ Average Steps
+```{r user-avg-steps, message=FALSE}
+ggplot(user_avg, aes(x = avg_steps)) +
+  geom_histogram(binwidth = 1000, color = "white") +
+  geom_vline(xintercept = 10000, linetype = "dashed") +
+  scale_x_continuous(labels = label_comma()) +
+  labs(title = "Average Daily Steps per User",
+       subtitle = paste0("Only ~", round(pct_users_10k,1), "% average ≥10k/day"),
+       x = "Average steps", y = "Users")
+```
+
+**Key finding:** Only `r round(pct_days_10k,1)`% of all logged days reached 10,000 steps.
+
+### Sleep Hours Distribution
+```{r sleep-hours-hist, message=FALSE}
+ggplot(daily_sleep, aes(x = sleep_hours)) +
+  geom_histogram(binwidth = 0.5, color = "white") +
+  geom_vline(xintercept = 7, linetype = "dashed") +
+  labs(title = "Distribution of Sleep Hours",
+       subtitle = paste0("Only ~", round(pct_days_7h,1), "% of days reach 7+ hours"),
+       x = "Hours slept", y = "Days")
+```
+
+**Key finding:** Only `r round(pct_users_10k,1)`% of users average ≥10k steps/day.
+
+### Sleep Efficiency
+```{r sleep-efficiency-hist-2, message=FALSE}
+ggplot(daily_sleep, aes(x = sleep_efficiency)) +
+  geom_histogram(binwidth = 0.05, color = "white") +
+  scale_x_continuous(labels = percent_format(accuracy = 1)) +
+  labs(title = "Sleep Efficiency",
+       subtitle = paste0("Average ≈ ", round(eff_mean,0), "%"),
+       x = "Sleep efficiency", y = "Days")
+```
+
+**Key finding:** Avg sleep is `r round(sleep_mean,1)`h; only `r round(pct_days_7h,1)`% of Days reach 7+ hours.
+
+### Weight Logging Participation (if weight exists)
+```{r weight-participation-plot, message=FALSE}
+if (exists("weight") && !is.na(n_users_weight)) {
+  df <- tibble(
+    Category = c("Logged Weight", "No Weight Logs"),
+    Users = c(n_users_weight, n_users_total - n_users_weight)
+  )
+  ggplot(df, aes(Category, Users)) +
+    geom_col() +
+    labs(title = "Weight Logging Participation",
+         subtitle = paste0("~", round(weight_participation_pct,1), "% of users logged weight at least once"),
+         x = NULL, y = "Users")
+} else {
+  "No weight file available for participation chart."
+}
+```
+
+**Key finding:** Users spend notable time in bed awake; avg efficiency ≈ `r round(eff_mean,0)`%.
+
+### Steps vs Sleep (relationship)
+```{r steps-vs-sleep-plot, message=FALSE}
+ggplot(daily_sleep, aes(x = total_steps, y = sleep_hours)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_x_continuous(labels = label_comma()) +
+  labs(title = "Steps vs. Sleep Hours",
+       subtitle = paste0("Correlation ≈ ", round(steps_sleep_cor,2), " (weak)"),
+       x = "Steps", y = "Sleep hours")
+```
+
+**Key finding:** Only `r if (!is.na(weight_participation_pct)) round(weight_participation_pct,1) else NA`% of users Logged weight.
+
+### Summary table
+```{r summary-table-show, message=FALSE}
+knitr::kable(summary_tbl, caption = "Top Metrics Summary")
+```
+**Key finding:** Steps and sleep are weakly related (`r round(steps_sleep_cor,2)`), so coach both **independently**.
+
+
+## Act: Connecting Insights to Bellabeat Products
+
+**Business Task Reminder:**  
+Analyze smart device usage data to understand consumer habits and use these insights to make recommendations that improve Bellabeat’s marketing strategy.  
+
+**Chosen Product:**  
+The **Bellabeat Leaf** – a health-focused smart jewelry piece that tracks activity, sleep, and reproductive health.  
+
+**Mapping Insights to Marketing Messages:**  
+
+1. **Steps Insight (only ~32% of days ≥10k steps):**  
+   - *So what?* Most users struggle to meet daily activity goals.  
+   - **Leaf Marketing Message:** Position the Leaf as a *personal movement coach*, offering **gentle reminders, daily challenges, and streak tracking** to keep women consistently active.  
+
+2. **Sleep Insight (low % of days with ≥7h sleep, efficiency gaps):**  
+   - *So what?* Many users are not getting enough quality sleep.  
+   - **Leaf Marketing Message:** Highlight Leaf’s **sleep tracking** and **mindfulness features** (like breathing exercises) as tools to **improve bedtime routines** and promote restorative rest.  
+
+3. **Weight Insight (low participation in logging weight):**  
+   - *So what?* Users avoid manual logging, showing friction.  
+   - **Leaf Marketing Message:** Market Leaf as a **frictionless experience** — “Unlike other devices, Leaf focuses on *automatic health tracking* so you can spend more time living, less time logging.”  
+
+**High-Level Recommendations for Bellabeat Marketing:**  
+- **Target Pain Points:** Emphasize how Leaf solves the common struggles revealed in Fitbit data (inactivity, poor sleep, low weight logging engagement).  
+- **Position Differentiation:** Market Leaf not just as jewelry, but as an **all-in-one wellness companion** that uniquely blends **style, automatic tracking, and holistic insights**.  
+- **Engagement Features:** Promote gamified challenges (steps), bedtime coaching (sleep), and effortless tracking (weight) to connect with women seeking balance and motivation.  
+
