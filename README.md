@@ -12,12 +12,12 @@ Tools
 
 Steps Followed
 
-Ask – Defined the business task and identified stakeholders.
-Prepare – Collected Fitbit activity, sleep, and weight data.
-Process – Cleaned datasets (duplicates, dates, column names).
-Analyze – Calculated activity/sleep/weight trends, relationships.
-Share – Created visualizations and summary metrics.
-Act – Connected insights to Bellabeat’s Leaf product and recommended marketing strategies.
+- Ask – Defined the business task and identified stakeholders.
+- Prepare – Collected Fitbit activity, sleep, and weight data.
+- Process – Cleaned datasets (duplicates, dates, column names).
+- Analyze – Calculated activity/sleep/weight trends, relationships.
+- Share – Created visualizations and summary metrics.
+- Act – Connected insights to Bellabeat’s Leaf product and recommended marketing strategies.
 
 Key Findings
 Only ~32% of days reached 10k steps.
