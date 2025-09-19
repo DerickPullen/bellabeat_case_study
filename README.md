@@ -20,8 +20,8 @@ Steps Followed
 - Act – Connected insights to Bellabeat’s Leaf product and recommended marketing strategies.
 
 Key Findings
-- Only ~32% of days reached 10k steps.
-- Only ~56% of days met the 7+ hours sleep guideline.
+- Only ~32% of users reached 10k steps.
+- Only ~56% of users met the 7+ hours sleep guideline.
 - Weight logging participation was very low (~24% of users).
 - Steps and sleep showed a weak correlation.
 
